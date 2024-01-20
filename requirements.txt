@@ -1,0 +1,14 @@
+numpy
+pandas
+matplotlib
+scikit-learn
+python-dotenv
+ipytest
+tensorflow
+sagemaker==2.192.1
+sagemaker[local]
+ruff
+nbformat
+nbdev
+nbclient
+ipykernel
