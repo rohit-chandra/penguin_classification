@@ -135,7 +135,7 @@ plt.tight_layout()
 plt.show()
 ```
 <p align="left">
-<img src="program/images/eda7.PNG"/>
+<img src="program/images/eda7.png"/>
 </p>
 
 - Let’s visualize the distribution of `numerical columns`.
@@ -164,7 +164,7 @@ plt.show()
 ```
 
 <p align="left">
-<img src="program/images/eda8.PNG"/>
+<img src="program/images/eda8.png"/>
 </p>
 
 - Let’s display the covariance matrix of the dataset. The “covariance” measures how changes in one variable are associated with changes in a second variable. In other words, the covariance measures the degree to which two variables are linearly associated.
@@ -215,7 +215,7 @@ ax.legend()
 plt.show()
 ```
 <p align="left">
-<img src="program/images/eda11.PNG"/>
+<img src="program/images/eda11.png"/>
 </p>
 
 - Let’s display the distribution of species by sex.
@@ -235,7 +235,7 @@ ax.legend()
 plt.show()
 ```
 <p align="left">
-<img src="program/images/eda12.PNG"/>
+<img src="program/images/eda12.png"/>
 </p>
 
 
