@@ -1,9 +1,9 @@
 ## Penguin Classification
 
-Main aim of this project to is implement end-to-end ML pipelines on AWS sagemaker :target:.
+Main aim of this project to is implement end-to-end ML pipelines on AWS sagemaker to predict the species of the Penguins. :penguin:
 
 
-## 1: Training Pipeline
+## 1. Training Pipeline
 
 - In this session we’ll run Exploratory Data Analysis on the [Penguins dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data) and we’ll build a simple [SageMaker Pipeline](https://docs.aws.amazon.com/sagemaker/latest/dg/pipelines-sdk.html) with one step to split and transform the data.
 
@@ -14,6 +14,8 @@ Main aim of this project to is implement end-to-end ML pipelines on AWS sagemake
 - We’ll use a [Scikit-Learn Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html) for the transformations, and a [Processing Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-processing) with a [SKLearnProcessor](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/sagemaker.sklearn.html#scikit-learn-processor) to execute a preprocessing script. Check the [SageMaker Pipelines Overview](https://docs.aws.amazon.com/sagemaker/latest/dg/pipelines-sdk.html) for an introduction to the fundamental components of a SageMaker Pipeline.
 
 ### Step 1: EDA
+
+- `Note`: This step has nothing to do with the pipeline
 
 - Let’s run Exploratory Data Analysis on the dataset. The goal of this section is to understand the data and the problem we are trying to solve.
 
