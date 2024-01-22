@@ -1,7 +1,6 @@
-## Penguin Classification :penguin:
-:penguin: :penguin: :penguin:
+## :penguin: :penguin: Penguin Classification :penguin: :penguin:
 
-Main aim of this project to is implement end-to-end `ML pipelines on AWS sagemaker` to predict the species of the Penguins. :penguin:
+Main aim of this project to is implement end-to-end `ML pipelines on AWS sagemaker` to predict the species of the Penguins.
 
 
 ## 1. Training Pipeline
