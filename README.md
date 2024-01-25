@@ -13,11 +13,11 @@ Main aim of this project to is implement end-to-end `ML pipelines on AWS sagemak
 
 - We’ll use a [Scikit-Learn Pipeline](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html) for the transformations, and a [Processing Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-processing) with a [SKLearnProcessor](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/sagemaker.sklearn.html#scikit-learn-processor) to execute a preprocessing script. Check the [SageMaker Pipelines Overview](https://docs.aws.amazon.com/sagemaker/latest/dg/pipelines-sdk.html) for an introduction to the fundamental components of a SageMaker Pipeline.
 
-### Step 1: EDA
+### Step 1: Exploratory Data Analysis (EDA)
 
 - `Note`: This step has nothing to do with the pipeline
 
-- Let’s run Exploratory Data Analysis on the dataset. The goal of this section is to understand the data and the problem we are trying to solve.
+- Let’s run EDA on the dataset. The goal of this section is to understand the data and the problem we are trying to solve.
 
 - Let’s load the Penguins dataset:
 
@@ -92,7 +92,7 @@ sex_distribution
 <img src="program/images/eda4.PNG"/>
 </p>
 
-- Next, let’s check for any missing values in the dataset.
+- Next, let’s check for any `missing values` in the dataset.
 
 ```
 penguins.isnull().sum()
@@ -244,12 +244,63 @@ plt.show()
 ### Step 2: Creating the Preprocessing Script
 
 - Fetch the data from S3 bucket on AWS and send it to a `processing job` (job running on AWS)
+- Processing Job: Sagemake is creating a job that's gonna run on the cloud
 - Processing Job splits the data into 3 sets and transforms and the output of this job gets stored back on S3 location called `Dataset splits`:
     - `Training set`
     - `Validation set`
     - `Test set`
 
 
+### Step 3: Setting up the Processing Step
+
+- Let's now define the [ProcessingStep](https://sagemaker.readthedocs.io/en/stable/workflows/pipelines/sagemaker.workflow.pipelines.html#sagemaker.workflow.steps.ProcessingStep) that we'll use in the pipeline to run the script that will split and transform the data.
+
+- When you're working in a pipeline, you access a `processing job` by creating a `ProcessingStep` in a SageMaker Pipeline.
+
+- Several SageMaker Pipeline steps support `caching`. When a step runs, and dependending on the configured caching policy, SageMaker will try to reuse the result of a previous successful run of the same step. You can find more information about this topic in [Caching Pipeline Steps](https://docs.aws.amazon.com/sagemaker/latest/dg/pipelines-caching.html). Let's define a caching policy that we'll reuse on every step:
+
+- To define a `ProcessingStep` in SageMaker, first you need to define a `processor`
+
+- A `processor` gives the `ProcessingStep` information about the hardware and software that SageMaker should use to launch the Processing Job. To run the script we created, we need access to Scikit-Learn, so we can use the [SKLearnProcessor](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/sagemaker.sklearn.html#scikit-learn-processor) processor that comes out-of-the-box with the SageMaker's Python SDK. 
+
+- A processor is basically telling SageMaker to install a container in the cloud to run this job
+
+- SageMaker manages the infrastructure of a Processing Job. It provisions resources for the duration of the job, and cleans up when it completes. The Processing Container image that SageMaker uses to run a Processing Job can either be a SageMaker built-in image or a custom image.
+
+- Once we configure the `processor`, we can configure the processing step
+
+<p align="left">
+<img src="program/images/process-data.png"/>
+</p>
+
+- We have data coming from S3, the `processing step` called `preprocess-data` will split the data into 3 sets and then transform it. The output of this step is that the trianing and valdiation set will go to the next pipeline (`training step`) that we will create in the next step
+
+- The bottom part in the diagram shows how the processing job looks (behind the scenes). When we define a step we add it to the pipeline and then we execute the pipeline (adn there will a processing job running behind the scenes). Here, the processing job takes data from S3 as input and copies the data to a processing container which is on cloud. This will be an instance (ml.t3.xlarge). This instance will have a ccontainer inside, along with input directory where s3 data gets copied to, our script will run in this processing container, save the data in output directory and this output directory will automatically gets uploaded by SageMaker
+
+- In short, The processing job grabs data from S3, copies the data in processing container, runs the script, grabs the output and uploads it to S3
+
+### Step 4: Creating the Pipeline
+
+- Create the SageMaker Pipeline and submit its definition to the SageMaker Pipelines service to create the pipeline if it doesn't exist or update it if it does
+
+```
+from sagemaker.workflow.pipeline import Pipeline
+from sagemaker.workflow.pipeline_definition_config import PipelineDefinitionConfig
+
+pipeline_definition_config = PipelineDefinitionConfig(use_custom_job_prefix=True)
+
+session1_pipeline = Pipeline(
+    name="session1-pipeline",
+    parameters=[dataset_location],
+    steps=[
+        preprocessing_step,
+    ],
+    pipeline_definition_config=pipeline_definition_config,
+    sagemaker_session=config["session"],
+)
+
+session1_pipeline.upsert(role_arn=role)
+```
 
 ## Running the code
 
