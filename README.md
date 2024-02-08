@@ -3,7 +3,7 @@
 Main aim of this project to is implement end-to-end `ML pipelines on AWS sagemaker` to predict the species of the Penguins.
 
 
-## 1. Training Pipeline
+## 1. Training Pipeline - Split and Transform (Processing Job)
 
 - In this session we’ll run Exploratory Data Analysis on the [Penguins dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data) and we’ll build a simple [SageMaker Pipeline](https://docs.aws.amazon.com/sagemaker/latest/dg/pipelines-sdk.html) with one step to split and transform the data.
 
@@ -259,6 +259,13 @@ plt.show()
 
 - Several SageMaker Pipeline steps support `caching`. When a step runs, and dependending on the configured caching policy, SageMaker will try to reuse the result of a previous successful run of the same step. You can find more information about this topic in [Caching Pipeline Steps](https://docs.aws.amazon.com/sagemaker/latest/dg/pipelines-caching.html). Let's define a caching policy that we'll reuse on every step:
 
+``` 
+from sagemaker.workflow.steps import CacheConfig
+
+cache_config = CacheConfig(enable_caching=True, expire_after="15d")
+
+```
+
 - To define a `ProcessingStep` in SageMaker, first you need to define a `processor`
 
 - A `processor` gives the `ProcessingStep` information about the hardware and software that SageMaker should use to launch the Processing Job. To run the script we created, we need access to Scikit-Learn, so we can use the [SKLearnProcessor](https://sagemaker.readthedocs.io/en/stable/frameworks/sklearn/sagemaker.sklearn.html#scikit-learn-processor) processor that comes out-of-the-box with the SageMaker's Python SDK. 
@@ -270,7 +277,7 @@ plt.show()
 - Once we configure the `processor`, we can configure the processing step
 
 <p align="left">
-<img src="program/images/process-data.png"/>
+<img src="program/images/preprocess-data.png"/>
 </p>
 
 - We have data coming from S3, the `processing step` called `preprocess-data` will split the data into 3 sets and then transform it. The output of this step is that the trianing and valdiation set will go to the next pipeline (`training step`) that we will create in the next step
@@ -289,8 +296,8 @@ from sagemaker.workflow.pipeline_definition_config import PipelineDefinitionConf
 
 pipeline_definition_config = PipelineDefinitionConfig(use_custom_job_prefix=True)
 
-session1_pipeline = Pipeline(
-    name="session1-pipeline",
+step1-pipeline = Pipeline(
+    name="step1-pipeline",
     parameters=[dataset_location],
     steps=[
         preprocessing_step,
@@ -299,8 +306,11 @@ session1_pipeline = Pipeline(
     sagemaker_session=config["session"],
 )
 
-session1_pipeline.upsert(role_arn=role)
+step1-pipeline.upsert(role_arn=role)
 ```
+
+
+
 
 ## Running the code
 
