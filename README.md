@@ -811,6 +811,7 @@ register_model_step = ModelStep(
 
 - Here’s a high-level overview of the Condition Step:
 
+
 <p align="left">
 <img src="program/images/condition-step.png"/>
 </p>
