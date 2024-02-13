@@ -581,11 +581,321 @@ session2_pipeline = Pipeline(
 
 session2_pipeline.upsert(role_arn=role)
 ```
-- We can now start the pipeline:
+- We can now start the `second pipeline` :
 
 ```
 step2-pipeline.start()
 ```
+
+
+## 3. Evaluating and Versioning Models
+
+- This session extends the SageMaker Pipeline with a step to evaluate the model and register it if it reaches a predefined accuracy threshold.
+
+- We’ll use a [Processing Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-processing) to execute an evaluation script. We’ll use a [Condition Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-condition) to determine whether the model’s accuracy is above a threshold, and a [Model Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-model) to register the model in the [SageMaker Model Registry](https://docs.aws.amazon.com/sagemaker/latest/dg/model-registry.html).
+
+
+### Step 1 - Creating the Evaluation Script
+- Here’s a high-level overview of the evaluation step and the Processing Job that SageMaker creates behind the scenes:
+
+<p align="left">
+<img src="program/images/evaluate-model.png"/>
+</p>
+
+- Let’s create the evaluation script. The Processing Step will spin up a Processing Job and run this script inside a container. This script is responsible for loading the model we created and evaluating it on the test set. Before finishing, this script will generate an evaluation report of the model.
+
+```
+import json
+import tarfile
+import numpy as np
+import pandas as pd
+
+from pathlib import Path
+from tensorflow import keras
+from sklearn.metrics import accuracy_score
+
+
+def evaluate(model_path, test_path, output_path):
+    X_test = pd.read_csv(Path(test_path) / "test.csv")
+    y_test = X_test[X_test.columns[-1]]
+    X_test.drop(X_test.columns[-1], axis=1, inplace=True)
+
+    # Let's now extract the model package so we can load 
+    # it in memory.
+    with tarfile.open(Path(model_path) / "model.tar.gz") as tar:
+        tar.extractall(path=Path(model_path))
+        
+    model = keras.models.load_model(Path(model_path) / "001")
+    
+    predictions = np.argmax(model.predict(X_test), axis=-1)
+    accuracy = accuracy_score(y_test, predictions)
+    print(f"Test accuracy: {accuracy}")
+
+    # Let's create an evaluation report using the model accuracy.
+    evaluation_report = {
+        "metrics": {
+            "accuracy": {
+                "value": accuracy
+            },
+        },
+    }
+    
+    Path(output_path).mkdir(parents=True, exist_ok=True)
+    with open(Path(output_path) / "evaluation.json", "w") as f:
+        f.write(json.dumps(evaluation_report))
+        
+        
+if __name__ == "__main__":
+    evaluate(
+        model_path="/opt/ml/processing/model/", 
+        test_path="/opt/ml/processing/test/",
+        output_path="/opt/ml/processing/evaluation/"
+    )
+```
+
+
+### Step 2 - Setting up the Evaluation Step
+- To run the evaluation script, we will use a [Processing Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-processing) configured with [TensorFlowProcessor](https://docs.aws.amazon.com/sagemaker/latest/dg/processing-job-frameworks-tensorflow.html) because the script needs access to TensorFlow.
+
+```
+from sagemaker.tensorflow import TensorFlowProcessor
+
+evaluation_processor = TensorFlowProcessor(
+    base_job_name="evaluation-processor",
+    image_uri=config["image"],
+    framework_version=config["framework_version"],
+    py_version=config["py_version"],
+    instance_type=config["instance_type"],
+    instance_count=1,
+    role=role,
+    sagemaker_session=config["session"],
+)
+```
+- One of the inputs to the Evaluation Step will be the model assets. We can use the USE_TUNING_STEP flag to determine whether we created the model using a Training Step or a Tuning Step. In case we are using the Tuning Step, we can use the [TuningStep.get_top_model_s3_uri()](https://sagemaker.readthedocs.io/en/stable/workflows/pipelines/sagemaker.workflow.pipelines.html#sagemaker.workflow.steps.TuningStep.get_top_model_s3_uri) function to get the model assets from the top performing training job of the Hyperparameter Tuning Job.
+
+
+
+```
+model_assets = train_model_step.properties.ModelArtifacts.S3ModelArtifacts
+
+if USE_TUNING_STEP:
+    model_assets = tune_model_step.get_top_model_s3_uri(
+        top_k=0, s3_bucket=config["session"].default_bucket()
+    )
+```
+
+- SageMaker supports mapping outputs to property files. This is useful when accessing a specific property from the pipeline. In our case, we want to access the accuracy of the model in the Condition Step, so we’ll map the evaluation report to a property file. Check [How to Build and Manage Property Files](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-propertyfile.html) for more information.
+
+```
+from sagemaker.workflow.properties import PropertyFile
+
+evaluation_report = PropertyFile(
+    name="evaluation-report", output_name="evaluation", path="evaluation.json"
+)
+```
+
+- We are now ready to define the ProcessingStep that will run the evaluation script:
+
+```
+evaluate_model_step = ProcessingStep(
+    name="evaluate-model",
+    step_args=evaluation_processor.run(
+        inputs=[
+            # The first input is the test split that we generated on
+            # the first step of the pipeline when we split and
+            # transformed the data.
+            ProcessingInput(
+                source=preprocessing_step.properties.ProcessingOutputConfig.Outputs[
+                    "test"
+                ].S3Output.S3Uri,
+                destination="/opt/ml/processing/test",
+            ),
+            # The second input is the model that we generated on
+            # the Training or Tunning Step.
+            ProcessingInput(
+                source=model_assets,
+                destination="/opt/ml/processing/model",
+            ),
+        ],
+        outputs=[
+            # The output is the evaluation report that we generated
+            # in the evaluation script.
+            ProcessingOutput(
+                output_name="evaluation", source="/opt/ml/processing/evaluation"
+            ),
+        ],
+        code=f"{CODE_FOLDER}/evaluation.py",
+    ),
+    property_files=[evaluation_report],
+    cache_config=cache_config,
+)
+```
+
+### Step 3 - Registering the Model
+- Let’s now create a new version of the model and register it in the Model Registry. Check Register a Model Version for more information about model registration.
+
+Here’s a high-level overview of how to register a model in the Model Registry:
+
+<p align="left">
+<img src="program/images/registeration-step.png"/>
+</p>
+
+- First, let’s define the name of the group where we’ll register the model:
+
+```
+MODEL_PACKAGE_GROUP = "penguins"
+```
+- Let’s now create the model that we’ll register in the Model Registry. The model we trained uses TensorFlow, so we can use the built-in [TensorFlowModel](https://sagemaker.readthedocs.io/en/stable/frameworks/tensorflow/sagemaker.tensorflow.html#tensorflow-serving-model) class to create an instance of the model:
+
+```
+from sagemaker.tensorflow.model import TensorFlowModel
+
+tensorflow_model = TensorFlowModel(
+    model_data=model_assets,
+    framework_version=config["framework_version"],
+    sagemaker_session=config["session"],
+    role=role,
+)
+```
+
+- When we register a model in the Model Registry, we can attach relevant metadata to it. We’ll use the evaluation report we generated during the Evaluation Step to populate the [metrics](https://sagemaker.readthedocs.io/en/stable/api/inference/model_monitor.html#sagemaker.model_metrics.ModelMetrics) of this model:
+
+```
+from sagemaker.model_metrics import ModelMetrics, MetricsSource
+from sagemaker.workflow.functions import Join
+
+model_metrics = ModelMetrics(
+    model_statistics=MetricsSource(
+        s3_uri=Join(
+            on="/",
+            values=[
+                evaluate_model_step.properties.ProcessingOutputConfig.Outputs[
+                    "evaluation"
+                ].S3Output.S3Uri,
+                "evaluation.json",
+            ],
+        ),
+        content_type="application/json",
+    )
+)
+```
+
+- We can use a [Model Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-model) to register the model (or) create a model. Check the [ModelStep](https://sagemaker.readthedocs.io/en/stable/workflows/pipelines/sagemaker.workflow.pipelines.html#sagemaker.workflow.model_step.ModelStep) SageMaker’s SDK documentation for more information.
+
+```
+from sagemaker.workflow.model_step import ModelStep
+
+register_model_step = ModelStep(
+    name="register-model",
+    step_args=tensorflow_model.register(
+        model_package_group_name=MODEL_PACKAGE_GROUP,
+        approval_status="Approved",
+        model_metrics=model_metrics,
+        content_types=["text/csv"],
+        response_types=["application/json"],
+        inference_instances=[config["instance_type"]],
+        transform_instances=[config["instance_type"]],
+        domain="MACHINE_LEARNING",
+        task="CLASSIFICATION",
+        framework="TENSORFLOW",
+        framework_version=config["framework_version"],
+    ),
+)
+
+```
+
+
+### Step 4 - Setting up a Condition Step
+
+- We only want to register a new model if its accuracy exceeds a predefined threshold. We can use a [Condition Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-condition) together with the evaluation report we generated to accomplish this.
+
+- Here’s a high-level overview of the Condition Step:
+
+<p align="left">
+<img src="program/images/condition-step.png"/>
+</p>
+
+- Let’s define a new [Pipeline Parameter](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-parameters.html) to specify the minimum accuracy that the model should reach for it to be registered.
+
+```
+from sagemaker.workflow.parameters import ParameterFloat
+
+accuracy_threshold = ParameterFloat(name="accuracy_threshold", default_value=0.70)
+```
+- If the model’s accuracy is not greater than or equal our threshold, we will send the pipeline to a [Fail Step](https://docs.aws.amazon.com/sagemaker/latest/dg/build-and-manage-steps.html#step-type-fail) with the appropriate error message. Check the [FailStep](https://sagemaker.readthedocs.io/en/stable/workflows/pipelines/sagemaker.workflow.pipelines.html#sagemaker.workflow.fail_step.FailStep) SageMaker’s SDK documentation for more information.
+
+```
+from sagemaker.workflow.fail_step import FailStep
+
+fail_step = FailStep(
+    name="fail",
+    error_message=Join(
+        on=" ",
+        values=[
+            "Execution failed because the model's accuracy was lower than",
+            accuracy_threshold,
+        ],
+    ),
+)
+```
+
+- We can use a [ConditionGreaterThanOrEqualTo](https://sagemaker.readthedocs.io/en/stable/workflows/pipelines/sagemaker.workflow.pipelines.html#sagemaker.workflow.conditions.ConditionGreaterThanOrEqualTo) condition to compare the model’s accuracy with the threshold. Look at the [Conditions](https://sagemaker.readthedocs.io/en/stable/amazon_sagemaker_model_building_pipeline.html#conditions) section in the documentation for more information about the types of supported conditions.
+
+```
+from sagemaker.workflow.functions import JsonGet
+from sagemaker.workflow.conditions import ConditionGreaterThanOrEqualTo
+
+condition = ConditionGreaterThanOrEqualTo(
+    left=JsonGet(
+        step_name=evaluate_model_step.name,
+        property_file=evaluation_report,
+        json_path="metrics.accuracy.value",
+    ),
+    right=accuracy_threshold,
+)
+```
+
+- Let’s now define the Condition Step:
+
+```
+from sagemaker.workflow.condition_step import ConditionStep
+
+condition_step = ConditionStep(
+    name="check-model-accuracy",
+    conditions=[condition],
+    if_steps=[register_model_step] if not LOCAL_MODE else [],
+    else_steps=[fail_step],
+)
+```
+
+### Step 5 - Creating the Pipeline
+
+- We can now define the SageMaker Pipeline and submit its definition to the SageMaker Pipelines service to create the pipeline if it doesn’t exist or update it if it does.
+
+```
+step3_pipeline = Pipeline(
+    name="step3-pipeline",
+    parameters=[dataset_location, accuracy_threshold],
+    steps=[
+        preprocessing_step,
+        tune_model_step if USE_TUNING_STEP else train_model_step,
+        evaluate_model_step,
+        condition_step,
+    ],
+    pipeline_definition_config=pipeline_definition_config,
+    sagemaker_session=config["session"],
+)
+
+step3_pipeline.upsert(role_arn=role)
+```
+
+- We can now start the pipeline:
+
+```
+step3_pipeline.start()
+```
+
+
 
 
 ## Running the code
