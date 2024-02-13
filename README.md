@@ -737,7 +737,7 @@ evaluate_model_step = ProcessingStep(
 Here’s a high-level overview of how to register a model in the Model Registry:
 
 <p align="left">
-<img src="program/images/registeration-step.png"/>
+<img src="program/images/registration-step.png"/>
 </p>
 
 - First, let’s define the name of the group where we’ll register the model:
